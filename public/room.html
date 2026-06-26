@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatroom</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <!--<script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css"
+      rel="stylesheet"
+    />-->
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="h-screen flex items-center justify-center">
+    <div
+      id="usernameAlert"
+      class="hidden fixed top-0 left-0 right-0 bg-red-500 text-white text-center p-4"
+    >
+      Please set a username.
+    </div>
+    <div
+      class="chat-container w-full max-w-md md:max-w-lg rounded-xl shadow-lg flex flex-col overflow-hidden h-full"
+    >
+      <div
+        class="p-4 border-b border-gray-700 flex justify-between items-center"
+      >
+        <h1 class="text-xl font-semibold"><span id="roomName"></span></h1>
+        <button
+          id="logoutButton"
+          class="text-gray-400 hover:text-white transition duration-200"
+        >
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+      <div
+        id="chatMessages"
+        class="flex-grow p-4 overflow-y-auto scrollbar-custom"
+      ></div>
+    </div>
+    <div class="chatroom-form">
+      <button id="fileUploadButton" class="upload-btn" type="button" title="Upload">
+        +
+        <input
+          type="file"
+          id="fileInput"
+          class="file-input"
+        />
+      </button>
+
+      <input
+        dir="auto"
+        type="text"
+        id="chatInput"
+        placeholder="Type a message..."
+        class="chat-input w-full px-4 py-2 border border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <button
+        id="sendButton"
+        class="send-button ml-2 px-4 py-2 text-white rounded-full hover:bg-blue-600 transition-colors duration-200"
+      >
+        Send
+      </button>
+    </div>
+    <div
+      id="uploadStatus"
+      class="hidden absolute top-0 left-0 right-0 bg-blue-500 text-white text-center p-2"
+    >
+      Uploading file...
+    </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        let socket;
+        const token = localStorage.getItem("token");
+
+        async function authenticate(username) {
+          const response = await fetch("/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username }),
+          });
+          const data = await response.json();
+          if (response.ok && data.token) {
+            localStorage.setItem("token", data.token);
+            localStorage.setItem("username", username);
+            localStorage.setItem("userId", data.userId);
+            location.reload(); // Reload the page to ensure the username is set correctly
+            return data.token;
+          } else if (data.error === "Username already exists") {
+            throw new Error(
+              "Username already exists. Please choose a different username."
+            );
+          } else {
+            throw new Error(
+              data.error || "Failed to authenticate. Please try again."
+            );
+          }
+        }
+
+        function connectSocket() {
+          // socket = io({
+          //   auth: { token: token },
+          socket = io({
+            auth: { token },
+            transports: ["websocket"],
+            upgrade: false,
+          });
+
+          socket.on("connect", () => {
+            socket.on("user_name", ({ username }) => {
+              console.log("Connected to server: " + username);
+            });
+          });
+
+          socket.on("disconnect", () => {});
+
+          socket.on("userDisconnect", ({ username }) => {
+            const user_name = localStorage.getItem("username");
+            console.log("Disconnected from server.");
+            if (user_name === username) {
+              localStorage.removeItem("token");
+              localStorage.removeItem("username");
+              localStorage.removeItem("userId");
+              alert(
+                "Disconnected from server. Please set your username again."
+              );
+              location.reload();
+            }
+            const leftMessage = document.createElement("div");
+            leftMessage.innerHTML = `<p class="text-gray-400 text-sm">${username} left from room</p>`;
+            chatMessages.appendChild(leftMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          });
+
+          setupEventListeners();
+        }
+
+        async function setupEventListeners() {
+          const chatMessages = document.getElementById("chatMessages");
+          const chatInput = document.getElementById("chatInput");
+          const sendButton = document.getElementById("sendButton");
+          const fileInput = document.getElementById("fileInput");
+          const roomNameElement = document.getElementById("roomName");
+          const logoutButton = document.getElementById("logoutButton");
+          const usernameAlert = document.getElementById("usernameAlert");
+
+          if (roomNameElement) {
+            const room = window.location.pathname.split("/").pop();
+            const token = localStorage.getItem("token");
+
+            if (!token) {
+              usernameAlert.classList.remove("hidden");
+              alert("Please set your username:");
+
+              async function promptUsername() {
+                let authenticated = false;
+                while (!authenticated) {
+                  const username = prompt("Enter your username:");
+                  if (username) {
+                    try {
+                      await authenticate(username);
+                      authenticated = true;
+                      location.reload();
+                    } catch (error) {
+                      alert(error.message);
+                    }
+                  } else {
+                    alert(
+                      "Username not set. Please refresh and set a username."
+                    );
+                    location.reload();
+                  }
+                }
+              }
+
+              promptUsername();
+            } else {
+              roomNameElement.textContent = room;
+              socket.emit("joinRoom", room);
+
+              sendButton.addEventListener("click", () => {
+                sendMessage();
+              });
+
+              chatInput.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  sendMessage();
+                }
+              });
+
+              function sendMessage() {
+                if (chatInput.value.trim() !== "") {
+                  socket.emit("chatMessage", {
+                    room,
+                    message: chatInput.value.trim(),
+                  });
+                  chatInput.value = "";
+                }
+              }
+              
+              // ===== Upload via Multer (/upload) =====
+              if (fileInput) {
+                fileInput.addEventListener("change", async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+
+                  const uploadStatus = document.getElementById("uploadStatus");
+                  uploadStatus.classList.remove("hidden");
+                  uploadStatus.textContent = `Uploading ${file.name}...`;
+
+                  try {
+                    const form = new FormData();
+                    form.append("file", file);
+
+                    const resp = await fetch("/upload", {
+                      method: "POST",
+                      body: form,
+                    });
+
+                    if (!resp.ok) throw new Error("Upload failed");
+                    const data = await resp.json();
+
+                    // If it's an image, show it inline. Otherwise send a link.
+                    const isImage = (data.mime || "").startsWith("image/");
+                    const safeName = (data.originalName || file.name).replace(/</g, "&lt;");
+                    // added for download name and extenion
+                    const link = data.downloadUrl || data.url; // backward compatible
+                    const html = isImage
+                      ? `📎 <a href="${link}" target="_blank" rel="noopener">${safeName}</a><br><img src="${data.url}" alt="${safeName}" style="max-width:220px;border-radius:10px;margin-top:8px;">`
+                      : `📎 <a href="${link}" target="_blank" rel="noopener">${safeName}</a>`;
+                      
+                    socket.emit("chatMessage", { room, message: html });
+                  } catch (e) {
+                    uploadStatus.textContent = "Upload error.";
+                    setTimeout(() => uploadStatus.classList.add("hidden"), 2500);
+                    fileInput.value = "";
+                    return;
+                  }
+
+                  uploadStatus.classList.add("hidden");
+                  fileInput.value = "";
+                });
+              }
+
+
+              // fileInput.addEventListener("change", async (event) => {
+              //   const files = event.target.files;
+
+              //   for (let i = 0; i < files.length; i++) {
+              //     const file = files[i];
+              //     const reader = new FileReader();
+
+              //     const uploadStatus = document.getElementById("uploadStatus");
+              //     uploadStatus.classList.remove("hidden");
+              //     uploadStatus.textContent = `Uploading ${file.name}...`;
+
+              //     reader.onload = async () => {
+              //       if (!navigator.onLine) {
+              //         showError();
+              //         return;
+              //       }
+
+              //       const base64Data = reader.result.split(",")[1];
+              //       socket.emit("uploadFile", {
+              //         room,
+              //         base64Data,
+              //         fileName: file.name,
+              //         contentType: file.type,
+              //       });
+
+              //       socket.once("fileUploaded", () => {
+              //         uploadStatus.classList.add("hidden");
+              //       });
+
+              //       socket.once("uploadError", () => {
+              //         showError();
+              //       });
+              //     };
+
+              //     reader.onerror = () => {
+              //       showError();
+              //     };
+
+              //     reader.readAsDataURL(file);
+              //   }
+
+              //   fileInput.value = null;
+              // });
+
+              function showError() {
+                const uploadStatus = document.getElementById("uploadStatus");
+                uploadStatus.textContent = "Error, please select a new file.";
+                setTimeout(() => {
+                  uploadStatus.classList.add("hidden");
+                }, 2500);
+              }
+
+              socket.on("userJoined", ({ username }) => {
+                const joinedMessage = document.createElement("div");
+                joinedMessage.innerHTML = `<p class="text-gray-400 text-sm">${username} joined the room</p>`;
+                chatMessages.appendChild(joinedMessage);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                socketUser = username;
+              });
+
+              socket.on("chatMessage", (msg) => {
+                  const msgDiv = document.createElement("div");
+                  msgDiv.classList.add("mb-4");
+
+                  const isMe = msg.username === localStorage.getItem("username");
+                  const time = new Date().toLocaleTimeString();
+
+                  if (isMe) {
+                    msgDiv.classList.add("flex", "justify-end");
+                    msgDiv.innerHTML = `<div>
+                      <p class="text-sm text-gray-400 mb-1 text-right">You</p>
+                      <div class="chat-bubble-right text-white p-4 rounded-2xl rounded-br-none">
+                        <div dir="auto">${msg.message}</div>
+                      </div>
+                      <p class="text-xs text-gray-600 mt-1 text-right">${time}</p>
+                    </div>`;
+                  } else {
+                    msgDiv.classList.add("flex");
+                    msgDiv.innerHTML = `<div>
+                      <p class="text-sm text-gray-400 mb-1">${msg.username}</p>
+                      <div class="chat-bubble-left p-4 rounded-2xl rounded-bl-none">
+                        <div dir="auto">${msg.message}</div>
+                      </div>
+                      <p class="text-xs text-gray-600 mt-1">${time}</p>
+                    </div>`;
+                  }
+
+                  chatMessages.appendChild(msgDiv);
+                  chatMessages.scrollTop = chatMessages.scrollHeight;
+                });
+
+
+              
+              socket.on("fileUploaded", (data) => {
+                const fileDiv = document.createElement("div");
+                const file = data.file;
+                fileDiv.classList.add("mb-4");
+
+                if (data.username === localStorage.getItem("username")) {
+                  fileDiv.classList.add("flex", "justify-end");
+                  fileDiv.innerHTML = `<div>
+                <p class="text-sm text-gray-400 mb-1 text-right">You</p>
+                <div class="chat-bubble-right text-white p-4 rounded-2xl rounded-br-none">
+                  <div class="image-container mt-2">
+                    <img src="${file.url}" alt="${file.fileName}">
+                    <div class="download-overlay">
+                      <a href="${file.url}" target="_blank" download="${
+                    file.fileName
+                  }">
+                        <i class="fas fa-download"></i> Download
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-xs text-gray-600 mt-1 text-right">${new Date().toLocaleTimeString()}</p>
+              </div>`;
+                } else {
+                  fileDiv.classList.add("flex");
+                  fileDiv.innerHTML = `<div>
+                <p class="text-sm text-gray-400 mb-1">${data.username}</p>
+                <div class="chat-bubble-left p-4 rounded-2xl rounded-bl-none">
+                  <div class="image-container mt-2">
+                    <img src="${file.url}" alt="${file.fileName}">
+                    <div class="download-overlay">
+                      <a href="${file.url}" target="_blank" download="${
+                    file.fileName
+                  }">
+                        <i class="fas fa-download"></i> Download
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-xs text-gray-600 mt-1">${new Date().toLocaleTimeString()}</p>
+              </div>`;
+                }
+                chatMessages.appendChild(fileDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+              });
+
+              socket.on("botMessage", (msg) => {
+                const msgDiv = document.createElement("div");
+                msgDiv.classList.add("mb-4", "flex", "justify-center");
+                msgDiv.innerHTML = `<div>
+                  <p class="text-sm text-gray-400 mb-1">${msg.username}</p>
+                  <div class="chat-bubble-left p-4 rounded-2xl rounded-bl-none">
+                    <div dir="auto">${msg.message}</div>
+                  </div>
+                </div>`;
+
+                chatMessages.appendChild(msgDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+              });
+
+
+              logoutButton.addEventListener("click", () => {
+                if (confirm("Are you sure you want to logout from the chat?")) {
+                  localStorage.removeItem("token");
+                  localStorage.removeItem("username");
+                  localStorage.removeItem("userId");
+                  window.location.href = "/";
+                }
+              });
+            }
+          }
+        }
+
+        // Check local storage changes
+        window.addEventListener("storage", () => {
+          const storedUsername = localStorage.getItem("username");
+          const storedUserId = localStorage.getItem("userId");
+
+          if (!storedUsername || !storedUserId) {
+            alert("Session has changed. Please set your username again.");
+            localStorage.removeItem("username");
+            localStorage.removeItem("token");
+            localStorage.removeItem("userId");
+            window.location.href = "/";
+          }
+        });
+
+        connectSocket();
+      });
+    </script>
+  </body>
+</html>
