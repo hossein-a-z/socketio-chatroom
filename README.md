@@ -1,4 +1,4 @@
-# SocketIO Chatroom V3
+# SocketIO Chatroom V3.1.0
 
 An anonymous chatroom application built with Node.js, Socket.IO, Express, and the Uploadcare API for file uploads.
 
