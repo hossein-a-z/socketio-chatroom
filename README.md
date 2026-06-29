@@ -1,4 +1,4 @@
-# SocketIO Chatroom V3.1.0
+# SocketIO Chatroom V3.2.0
 
 An anonymous chatroom application built with Node.js, Socket.IO, Express, and the Uploadcare API for file uploads.
 
@@ -8,6 +8,7 @@ This project is based on Hossein Pira's repo. just tried to make it more blackou
 ## Table of Contents
 
 - [Features](#features)
+- [Change Log](#change-log)
 - [Installation](#installation)
 - [Usage](#usage)
   - [Creating a Chat Room](#creating-a-chat-room)
@@ -23,6 +24,15 @@ This project is based on Hossein Pira's repo. just tried to make it more blackou
 - Create and join chat rooms
 - Upload and share images in chat rooms using Uploadcare API
 - User-friendly UI with Tailwind CSS
+
+## Change Log
+
+Changed the server.js and room.html so it does not breaks after stopping and redeploement
+
+3.2.0 changes:
+1-made the JWT stateless
+2-Re-enabled polling fallback
+3-Added connect_error handler
 
 ## Installation
 

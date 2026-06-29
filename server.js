@@ -20,9 +20,9 @@ const app = express();
 const server = http.createServer(app);
 //const io = new SocketIOServer(server);
 const io = new SocketIOServer(server, {
-  transports: ["websocket"],
-  connectTimeout: 5000,
+  transports: ["polling", "websocket"],
 });
+
 
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_key";
@@ -131,32 +131,19 @@ app.get("/generate", (req, res) => {
 
 // Middleware to verify JWT token for socket connections
 async function verifyJWT(socket, next) {
-  const token = socket.handshake.auth.token;
-  if (token) {
-    jwt.verify(token, JWT_SECRET, async (err, decoded) => {
-      if (err) return next(new Error("Authentication error"));
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error("Authentication error"));
 
-      const { userId, username } = decoded;
-      const user = activeUsers.get(userId);
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) return next(new Error("Authentication error"));
 
-      if (
-        !user ||
-        user.username !== username ||
-        !(await bcrypt.compare(username, user.hashedUsername)) ||
-        user.token !== token
-      ) {
-        return next(new Error("Authentication error"));
-      }
-
-      socket.userId = userId;
-      socket.username = username;
-      socket.token = token; // Save token in socket
-      next();
-    });
-  } else {
-    next(new Error("Authentication error"));
-  }
+    socket.userId = decoded.userId;
+    socket.username = decoded.username;
+    socket.token = token;
+    next();
+  });
 }
+
 
 
 // added for filename + extention forcing 
